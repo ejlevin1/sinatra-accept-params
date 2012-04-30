@@ -171,8 +171,8 @@ module Sinatra
           recognized_keys.each do |key|
             count += 1 if params[key]
           end
-          raise MissingParam, "Request params missing any parameters from '#{recognized_keys.join(',')}'" if options[:required] == :any && count == 0
-          raise MissingParam, "Request params missing all parameters from '#{recognized_keys.join(',')}'" if options[:required] == :all && count != recognized_keys.count
+          raise MissingParam, "Request params missing any parameters from '#{recognized_keys.join(',')}'" if options[:require] == :any && count == 0
+          raise MissingParam, "Request params missing all parameters from '#{recognized_keys.join(',')}'" if options[:require] == :all && count != recognized_keys.count
         else
           recognized_keys = validate_children(params)
           unexpected_keys = params.keys - recognized_keys
