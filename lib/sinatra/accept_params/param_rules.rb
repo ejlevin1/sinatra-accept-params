@@ -84,6 +84,14 @@ module Sinatra
         @children << child
       end
 
+      def group(*args, &block)
+        name = "group-#{rand(100000)}"
+        raise ArgumentError, "Missing block to param group declaration" unless block_given?
+        child = ParamRules.new(settings, :group, name, args.extract_options!, self)  # block not required per se
+        yield child
+        @children << child
+      end
+
       # Ala pretty migrations
       def string(name, options={})
         param(:string, name, options)
@@ -137,7 +145,11 @@ module Sinatra
       def namespace?
         type == :namespace
       end
-    
+
+      def group?
+        type == :group
+      end    
+
       # Returns the full name of this parameter as it would be accessed in the
       # action. Example output might be "params[:person][:name]". 
       def canonical_name #:nodoc:
@@ -153,21 +165,31 @@ module Sinatra
       # Validate the given parameters against our requirements, raising 
       # exceptions for missing or unexpected parameters.
       def validate(params) #:nodoc:
-        recognized_keys = validate_children(params)
-        unexpected_keys = params.keys - recognized_keys
-        if parent.nil?
-          # Only ignore the standard params at the top level.
-          unexpected_keys -= settings[:ignore_params]
-        end
-        unless unexpected_keys.empty?
-          # kinda hacky to get it to display correctly
-          unless settings[:ignore_unexpected]
-            basename   = canonical_name
-            canonicals = unexpected_keys.sort.collect{|k| basename.empty? ? k : basename + "[#{k}]"}.join(', ')
-            s = unexpected_keys.length == 1 ? '' : 's'
-            raise UnexpectedParam, "Request included unexpected parameter#{s}: #{canonicals}"
+        if group?
+          recognized_keys = validate_children(params)
+          count = 0
+          recognized_keys.each do |key|
+            count += 1 if params[key]
           end
-          unexpected_keys.each{|k| params.delete(k)} if settings[:remove_unexpected]
+          raise MissingParam, "Request params missing any parameters from '#{recognized_keys.join(',')}'" if options[:require] == :any && count == 0
+          raise MissingParam, "Request params missing all parameters from '#{recognized_keys.join(',')}'" if options[:require] == :all && count != recognized_keys.count
+        else
+          recognized_keys = validate_children(params)
+          unexpected_keys = params.keys - recognized_keys
+          if parent.nil?
+            # Only ignore the standard params at the top level.
+            unexpected_keys -= settings[:ignore_params]
+          end
+          unless unexpected_keys.empty?
+            # kinda hacky to get it to display correctly
+            unless settings[:ignore_unexpected]
+              basename   = canonical_name
+              canonicals = unexpected_keys.sort.collect{|k| basename.empty? ? k : basename + "[#{k}]"}.join(', ')
+              s = unexpected_keys.length == 1 ? '' : 's'
+              raise UnexpectedParam, "Request included unexpected parameter#{s}: #{canonicals}"
+            end
+            unexpected_keys.each{|k| params.delete(k)} if settings[:remove_unexpected]
+          end
         end
       end
     
@@ -202,13 +224,15 @@ module Sinatra
       def validate_children(params)
         recognized_keys = []
         children.each do |child|
-          #puts ">>>>>>>>>> child.name = #{child.canonical_name}"
+          # puts ">>>>>>>>>> child.name = #{child.canonical_name}"
           if child.namespace?
             recognized_keys << child.name
             # NOTE: Can't get fancy and do this ||= w/i the below func call, due to 
             # an apparent oddity of Ruby's scoping for method args
             params[child.name] ||= HashWithIndifferentAccess.new   # create holder for subelements if missing
             validate_child(child, params[child.name]) 
+          elsif child.group?
+            validate_child(child, params) 
           elsif params.has_key?(child.name)
             recognized_keys << child.name
             validate_child(child, params[child.name])
