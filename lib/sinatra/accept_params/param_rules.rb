@@ -166,13 +166,13 @@ module Sinatra
       # exceptions for missing or unexpected parameters.
       def validate(params) #:nodoc:
         if group?
-          recognized_keys = validate_children(params)
-          count = 0
-          recognized_keys.each do |key|
-            count += 1 if params[key]
-          end
-          raise MissingParam, "Request params missing any parameters from '#{recognized_keys.join(',')}'" if options[:require] == :any && count == 0
-          raise MissingParam, "Request params missing all parameters from '#{recognized_keys.join(',')}'" if options[:require] == :all && count != recognized_keys.count
+          # recognized_keys = validate_children(params)
+          # count = 0
+          # recognized_keys.each do |key|
+          #   count += 1 if params[key]
+          # end
+          valid = validate_group(self, params)
+          raise MissingParam, "Request params missing any/all parameters required.'" if !valid
         else
           recognized_keys = validate_children(params)
           unexpected_keys = params.keys - recognized_keys
@@ -193,6 +193,28 @@ module Sinatra
         end
       end
     
+      def validate_group(node, params)
+        validated = node.children.collect do |child|
+          # puts "Child: #{child.name} -- #{params[child.name]}" if !child.group?
+          if child.group?
+            validate_group(child, params)
+          else
+            validate_child(child, params[child.name])
+            validate_value_and_type_cast!(child, params)
+            params[child.name] ? true : false
+          end
+        end
+
+        if(node.options[:require] == :any)
+          valid = validated.select { |v| v == true } .count > 0
+        elsif node.options[:require] == :all 
+          valid = validated.select { |v| v == true } .count == validated.count
+        end
+
+        # puts "Validated : #{validated} -- #{node.options} as #{valid} for group: #{node.children.collect { |c| c.name }}"
+        valid
+      end
+
       # Create a new param
       def param(type, name, options)
         @children << ParamRules.new(settings, type.to_sym, name, options, self)
